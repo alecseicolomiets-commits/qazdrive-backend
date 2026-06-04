@@ -16,6 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt.auth' => \App\Http\Middleware\JwtMiddleware::class,
         ]);
 
+        $middleware->api(prepend: [
+            \App\Http\Middleware\ForceJsonResponse::class,
+        ]);
+
         $middleware->statefulApi();
     })
     ->withExceptions(function (Exceptions $exceptions) {
@@ -28,6 +32,27 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, $request) {
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Unauthenticated'], 401);
+            }
+        });
+
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'The given data was invalid.',
+                    'errors'  => $e->errors(),
+                ], 422);
+            }
+        });
+
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\NotFoundHttpException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Not found'], 404);
+            }
+        });
+
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Method not allowed'], 405);
             }
         });
     })
