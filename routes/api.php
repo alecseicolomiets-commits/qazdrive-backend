@@ -36,3 +36,15 @@ Route::middleware('jwt.auth')->group(function () {
     Route::post('/user/avatar', [UserController::class, 'uploadAvatar']);
     Route::get('/user/my-bids', [UserController::class, 'myBids']);
 });
+// Support messages (заглушка)
+Route::get('/support-messages', function () {
+    return response()->json([]);
+});
+
+Route::post('/support-messages', function () {
+    return response()->json([
+        'id' => rand(1, 1000),
+        'message' => request('message'),
+        'created_at' => now(),
+    ], 201);
+});
