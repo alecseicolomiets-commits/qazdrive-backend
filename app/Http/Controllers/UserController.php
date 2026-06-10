@@ -22,15 +22,18 @@ class UserController extends Controller
             ->map(fn($bid) => $this->formatBid($bid));
 
         return response()->json([
-            'id'         => $user->id,
-            'nickname'   => $user->nickname,
-            'email'      => $user->email,
-            'phone'      => $user->phone,
-            'city'       => $user->city,
-            'avatar_url' => $user->avatar_url,
-            'role'       => $user->role,
-            'created_at' => $user->created_at,
-            'bids'       => $bids,
+            'id'                => $user->id,
+            'nickname'          => $user->nickname,
+            'email'             => $user->email,
+            'phone'             => $user->phone,
+            'city'              => $user->city,
+            'avatar_url'        => $user->avatar_url,
+            'role'              => $user->role,
+            'balance'           => $user->balance,
+            'tariff'            => $user->tariff ?? 'БАЗОВЫЙ',
+            'tariff_expires_at' => $user->tariff_expires_at,
+            'created_at'        => $user->created_at,
+            'bids'              => $bids,
         ]);
     }
 
@@ -39,10 +42,16 @@ class UserController extends Controller
         $user = JWTAuth::parseToken()->authenticate();
 
         $validator = Validator::make($request->all(), [
-            'phone' => 'nullable|string|max:20|unique:users,phone,' . $user->id,
-            'city'  => 'nullable|string|max:100',
+            'full_name'          => 'nullable|string|max:255',
+            'phone'              => 'nullable|string|max:20|unique:users,phone,' . $user->id,
+            'city'               => 'nullable|string|max:100',
+            'balance'            => 'nullable|numeric|min:0',
+            'tariff' => 'nullable|string|in:БАЗОВЫЙ,СТАНДАРТ,ДРАЙВ,БИЗНЕС,VIP,СТАРТ,ДИЛЕР,ПРОФИ,АВТОСАЛОН,АУКЦИОН-ХАУС',
+            'tariff_expires_at'  => 'nullable|date',
         ], [
-            'phone.unique' => 'Номер телефона уже используется',
+            'phone.unique'  => 'Номер телефона уже используется',
+            'tariff.in'     => 'Недопустимый тариф',
+            'balance.min'   => 'Баланс не может быть отрицательным',
         ]);
 
         if ($validator->fails()) {
@@ -52,17 +61,56 @@ class UserController extends Controller
             ], 422);
         }
 
-        $user->update($request->only(['phone', 'city']));
+        // Если меняется тариф — проверяем баланс
+        if ($request->has('tariff') && $request->tariff !== ($user->tariff ?? 'БАЗОВЫЙ')) {
+            $tariffPrices = [
+                'БАЗОВЫЙ'  => 0,
+                'СТАНДАРТ' => 25000,
+                'ДРАЙВ'    => 55000,
+                'БИЗНЕС'   => 125000,
+                'VIP'      => 250000,
+            ];
+            $price = $tariffPrices[$request->tariff] ?? 0;
+
+            // Если цена передана через balance — уже учтена на фронте
+            // Дополнительная проверка на случай прямого вызова API
+            if ($price > 0 && !$request->has('balance')) {
+                if ($user->balance < $price) {
+                    return response()->json([
+                        'message' => 'Недостаточно средств для смены тарифа',
+                    ], 400);
+                }
+                $user->balance -= $price;
+            }
+
+            $user->tariff = $request->tariff;
+            $user->tariff_expires_at = $request->tariff_expires_at
+                ?? ($price > 0 ? now()->addYear() : null);
+        }
+
+        if ($request->has('full_name')) {
+            $user->full_name = $request->full_name;
+            $user->nickname  = explode(' ', trim($request->full_name))[0];
+        }
+
+        if ($request->has('phone'))   $user->phone   = $request->phone;
+        if ($request->has('city'))    $user->city    = $request->city;
+        if ($request->has('balance')) $user->balance = $request->balance;
+
+        $user->save();
 
         return response()->json([
             'message' => 'Profile updated successfully',
             'user'    => [
-                'id'         => $user->id,
-                'nickname'   => $user->nickname,
-                'email'      => $user->email,
-                'phone'      => $user->phone,
-                'city'       => $user->city,
-                'avatar_url' => $user->avatar_url,
+                'id'                => $user->id,
+                'nickname'          => $user->nickname,
+                'email'             => $user->email,
+                'phone'             => $user->phone,
+                'city'              => $user->city,
+                'avatar_url'        => $user->avatar_url,
+                'balance'           => $user->balance,
+                'tariff'            => $user->tariff,
+                'tariff_expires_at' => $user->tariff_expires_at,
             ],
         ]);
     }
@@ -73,20 +121,12 @@ class UserController extends Controller
 
         $validator = Validator::make($request->all(), [
             'avatar' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-        ], [
-            'avatar.required' => 'Файл аватара обязателен',
-            'avatar.image'    => 'Файл должен быть изображением',
-            'avatar.max'      => 'Размер файла не должен превышать 5MB',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'message' => 'The given data was invalid.',
-                'errors'  => $validator->errors(),
-            ], 422);
+            return response()->json(['message' => 'Ошибка валидации', 'errors' => $validator->errors()], 422);
         }
 
-        // Удаляем старый аватар если есть
         if ($user->avatar_url) {
             $oldPath = str_replace(config('app.url') . '/storage/', '', $user->avatar_url);
             Storage::disk('public')->delete($oldPath);
@@ -99,27 +139,22 @@ class UserController extends Controller
         $avatarUrl = config('app.url') . '/storage/' . $filename;
         $user->update(['avatar_url' => $avatarUrl]);
 
-        return response()->json([
-            'message'    => 'Avatar uploaded successfully',
-            'avatar_url' => $avatarUrl,
-        ]);
+        return response()->json(['message' => 'Avatar uploaded successfully', 'avatar_url' => $avatarUrl]);
     }
 
     public function myBids(Request $request): JsonResponse
     {
         $user = JWTAuth::parseToken()->authenticate();
 
-        $query = Bid::with('car')->where('user_id', $user->id);
-
-        $bids = $query->orderBy('created_at', 'desc')->get();
+        $bids = Bid::with('car')
+            ->where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         $formatted = $bids->map(fn($bid) => $this->formatBid($bid));
 
-        // Фильтр по статусу после маппинга
         if ($request->has('status') && $request->status !== 'all') {
-            $formatted = $formatted->filter(
-                fn($bid) => $bid['status'] === $request->status
-            )->values();
+            $formatted = $formatted->filter(fn($bid) => $bid['status'] === $request->status)->values();
         }
 
         return response()->json($formatted);
@@ -127,15 +162,14 @@ class UserController extends Controller
 
     private function formatBid(Bid $bid): array
     {
-        $car = $bid->car;
-
+        $car    = $bid->car;
         $maxBid = $car ? $car->bids()->max('amount') : 0;
         $status = $bid->amount >= $maxBid ? 'leading' : 'outbid';
 
         return [
-            'id'     => $bid->id,
-            'car_id' => $bid->car_id,
-            'car'    => $car ? [
+            'id'         => $bid->id,
+            'car_id'     => $bid->car_id,
+            'car'        => $car ? [
                 'id'        => $car->id,
                 'make'      => $car->make,
                 'model'     => $car->model,

@@ -30,23 +30,18 @@ class AuthController extends Controller
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
                 'message' => 'Invalid credentials',
-                'errors'  => [
-                    'email' => ['Email или пароль неверны'],
-                ],
+                'errors'  => ['email' => ['Email или пароль неверны']],
             ], 401);
         }
 
         if (!$user->is_active) {
             return response()->json([
                 'message' => 'Account is disabled',
-                'errors'  => [
-                    'email' => ['Аккаунт заблокирован'],
-                ],
+                'errors'  => ['email' => ['Аккаунт заблокирован']],
             ], 403);
         }
 
         $token = JWTAuth::fromUser($user);
-
         $user->update(['last_login_at' => now()]);
 
         return response()->json([
@@ -63,12 +58,14 @@ class AuthController extends Controller
             'phone'     => 'nullable|string|max:20|unique:users,phone',
             'city'      => 'nullable|string|max:100',
             'password'  => 'required|string|min:8',
+            'role'      => 'nullable|in:buyer,seller,user',
         ], [
             'full_name.required' => 'Полное имя обязательно',
             'email.required'     => 'Email обязателен',
             'email.unique'       => 'Email уже зарегистрирован в системе',
             'phone.unique'       => 'Номер телефона уже используется',
             'password.min'       => 'Пароль должен быть не менее 8 символов',
+            'role.in'            => 'Роль должна быть buyer или seller',
         ]);
 
         if ($validator->fails()) {
@@ -81,6 +78,9 @@ class AuthController extends Controller
         $fullName = $request->full_name;
         $nickname = explode(' ', trim($fullName))[0];
 
+        // Принимаем роль от клиента, по умолчанию buyer
+        $role = in_array($request->role, ['buyer', 'seller']) ? $request->role : 'buyer';
+
         $user = User::create([
             'full_name' => $fullName,
             'nickname'  => $nickname,
@@ -88,7 +88,7 @@ class AuthController extends Controller
             'phone'     => $request->phone,
             'city'      => $request->city,
             'password'  => Hash::make($request->password),
-            'role'      => 'user',
+            'role'      => $role,
             'is_active' => true,
         ]);
 
@@ -104,13 +104,9 @@ class AuthController extends Controller
     {
         try {
             JWTAuth::invalidate(JWTAuth::getToken());
-        } catch (\Exception $e) {
-            // токен уже невалиден — не страшно
-        }
+        } catch (\Exception $e) {}
 
-        return response()->json([
-            'message' => 'Logged out successfully',
-        ], 200);
+        return response()->json(['message' => 'Logged out successfully'], 200);
     }
 
     private function formatUser(User $user): array
@@ -123,6 +119,8 @@ class AuthController extends Controller
             'city'       => $user->city,
             'avatar_url' => $user->avatar_url,
             'role'       => $user->role,
+            'tariff'     => $user->tariff,
+            'balance'    => $user->balance ?? 0,
         ];
     }
 }

@@ -11,15 +11,19 @@ class Car extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'seller_id',
         'make',
         'model',
         'year',
         'vin',
         'location',
+        'city',
         'description',
         'mileage',
         'color',
+        'condition',
         'transmission',
+        'drive_type',
         'fuel_type',
         'engine_volume',
         'power_hp',
@@ -27,22 +31,27 @@ class Car extends Model
         'is_live',
         'is_top',
         'is_finished',
+        'status',
         'current_bid',
+        'current_price',
         'starting_price',
+        'start_price',
         'ends_at',
     ];
 
     protected $casts = [
-        'is_live'       => 'boolean',
-        'is_top'        => 'boolean',
-        'is_finished'   => 'boolean',
-        'ends_at'       => 'datetime',
-        'engine_volume' => 'float',
-        'current_bid'   => 'integer',
-        'starting_price'=> 'integer',
-        'mileage'       => 'integer',
-        'power_hp'      => 'integer',
-        'year'          => 'integer',
+        'is_live'        => 'boolean',
+        'is_top'         => 'boolean',
+        'is_finished'    => 'boolean',
+        'ends_at'        => 'datetime',
+        'engine_volume'  => 'float',
+        'current_bid'    => 'integer',
+        'current_price'  => 'integer',
+        'starting_price' => 'integer',
+        'start_price'    => 'integer',
+        'mileage'        => 'integer',
+        'power_hp'       => 'integer',
+        'year'           => 'integer',
     ];
 
     public function bids()
@@ -55,25 +64,25 @@ class Car extends Model
         return $this->hasMany(View::class);
     }
 
+    public function seller()
+    {
+        return $this->belongsTo(User::class, 'seller_id');
+    }
+
+    public function reports()
+    {
+        return $this->hasMany(Report::class);
+    }
+
     public function getTimeLeftAttribute(): string
     {
-        if ($this->is_finished) {
-            return 'Завершен';
-        }
-
-        $now = now();
+        if ($this->is_finished) return 'Завершен';
         $ends = $this->ends_at;
-
-        if ($ends->isPast()) {
-            return 'Завершен';
-        }
-
-        $diff = $now->diff($ends);
-
+        if (!$ends || $ends->isPast()) return 'Завершен';
+        $diff = now()->diff($ends);
         if ($diff->days > 0) {
             return $diff->days . 'd ' . sprintf('%02d:%02d:%02d', $diff->h, $diff->i, $diff->s);
         }
-
         return sprintf('%02d:%02d:%02d', $diff->h, $diff->i, $diff->s);
     }
 
